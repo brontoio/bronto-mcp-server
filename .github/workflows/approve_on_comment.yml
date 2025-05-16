@@ -1,0 +1,31 @@
+name: Approve Action on Comment
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  approve-action:
+    runs-on: ubuntu-latest
+    if: github.event.issue.pull_request && contains(github.event.comment.body, '/auto-approve')
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: Approve PR
+        uses: hmarr/auto-approve-action@v4
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          pull-request-number: ${{ github.event.issue.number }}
+          review-message: "Auto approved"
+
+      - name: Slack Notification
+        uses: brontoio/logchat-actions/slack-notify@main
+        with:
+          channel: emergency-code-change
+          title: "Peer Review required for ${{ github.event.issue.html_url }}"
+          project: "Emergency Change"
+          username: ${{ github.event.repository.name }}
+          status: ${{ job.status }}
+          webhook: ${{ secrets.SLACK_WEBHOOK }}
+          version: ''
