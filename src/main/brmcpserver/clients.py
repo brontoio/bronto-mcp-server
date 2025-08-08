@@ -6,9 +6,6 @@ import logging
 import os
 import json
 
-import boto3
-from botocore.exceptions import ClientError
-
 logger = logging.getLogger()
 handler = logging.FileHandler('/tmp/bronto_mcp.log')
 handler.setLevel(logging.DEBUG)
@@ -27,7 +24,7 @@ class BrontoClient:
         self.api_endpoint = api_endpoint
         self.headers = {
             'Content-Type': 'application/json',
-            'User-Agent': 'bronto-behaviour-comparison',
+            'User-Agent': 'bronto-mcp',
             'x-bronto-api-key': self.api_key
         }
 
@@ -103,3 +100,98 @@ class BrontoClient:
             datasets = json.loads(resp.read()).get('logs', [])
             logging.info('DATASETS=%s', datasets)
             return datasets
+
+    def search(self, timestamp_start: int, timestamp_end: int, log_ids: list[str], where='',
+               _select=None, group_by_keys=None):
+        if group_by_keys is None:
+            group_by_keys = []
+        if _select is None:
+            _select = ['@raw']
+        url_path = 'search'
+        params = {
+            'from_ts': timestamp_start,
+            'to_ts': timestamp_end,
+            'where': where,
+            'select': _select,
+            'group_by_keys': group_by_keys
+        }
+        url_params = ('?' + "&".join([urllib.parse.urlencode({'from': log_id}) for log_id in log_ids]) +
+                      f'&from_ts={params.get("from_ts")}&to_ts={params.get("to_ts")}&'
+                      + urllib.parse.urlencode({'where': params.get("where")}) + '&' +
+                      "&".join([urllib.parse.urlencode({'select': sel}) for sel in params.get("select")]) + '&' +
+                      "&".join([urllib.parse.urlencode({'groups': key}) for key in params.get("group_by_keys")])
+                      )
+        req_w_params = os.path.join(self.api_endpoint, url_path) + url_params
+        request = urllib.request.Request(req_w_params, headers=self.headers)
+        try:
+            with urllib.request.urlopen(request) as resp:
+                if resp.status != 200 and resp.status != 201:
+                    logger.error('Search failed, status=%s, reason=%s',resp.status, resp.reason)
+                result = json.loads(resp.read())
+                return result
+        except Exception as e:
+            print(e)
+
+    def search_post(self, timestamp_start: int, timestamp_end: int, log_ids: list[str], where='',
+                     _select=None, group_by_keys=None):
+        if group_by_keys is None:
+            group_by_keys = []
+        if _select is None:
+            _select = ['@raw']
+        url_path = 'search'
+        params = {
+            'from_ts': timestamp_start,
+            'to_ts': timestamp_end,
+            'where': where,
+            'select': _select,
+            'from': log_ids,
+            'groups': group_by_keys,
+            'num_of_slices': 10
+        }
+        req_w_params = os.path.join(self.api_endpoint, url_path)
+        request = urllib.request.Request(req_w_params, method='POST', data=json.dumps(params).encode(),
+                                         headers=self.headers)
+        try:
+            with urllib.request.urlopen(request) as resp:
+                if resp.status != 200 and resp.status != 201:
+                    logger.error('Search failed, status=%s, reason=%s',resp.status, resp.reason)
+                result = json.loads(resp.read())
+                return result
+        except Exception as e:
+            print(e)
+
+
+    def get_stats(self, timestamp_start: int, timestamp_end: int, log_ids: list[str], _select=None):
+        url_path = 'search'
+        params = {
+            'from': ':'.join(log_ids),
+            'from_ts': timestamp_start,
+            'to_ts': timestamp_end,
+            'groups': ['service', 'versions'],
+            'where': "'version inventory'"
+        }
+        if _select is not None:
+            params.update({'select': _select})
+        url_params = ('?' + urllib.parse.urlencode({'from': params.get("from")}) +
+                      f'&from_ts={params.get("from_ts")}&to_ts={params.get("to_ts")}&'
+                      + urllib.parse.urlencode({'select': params.get("select"), 'where': params.get("where")}) + '&' +
+                      "&".join([urllib.parse.urlencode({'groups': group}) for group in params.get("groups")]))
+        req_w_params = os.path.join(self.api_endpoint, url_path) + url_params
+        request = urllib.request.Request(req_w_params, headers=self.headers)
+        with urllib.request.urlopen(request) as resp:
+            if resp.status != 200 and resp.status != 201:
+                logger.error('Search failed, status=%s, reason=%s',resp.status, resp.reason)
+            result = json.loads(resp.read()).get('result', [])
+            return result
+
+    def get_keys(self, log_id):
+        url_path = f'top-keys?log_id={log_id}'
+        request = urllib.request.Request(os.path.join(self.api_endpoint, url_path), headers=self.headers)
+        with urllib.request.urlopen(request) as resp:
+            if resp.status != 200 and resp.status != 201:
+                logger.error('Keys retrieval failed, log_id=%s status=%s, reason=%s',log_id, resp.status,
+                             resp.reason)
+            body = json.loads(resp.read())
+            keys = list(body.get(log_id, {}).keys())
+            logging.info('keys=%s', keys)
+            return keys
