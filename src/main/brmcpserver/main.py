@@ -5,7 +5,7 @@ from config import Config
 from clients import BrontoClient, logger
 
 # Create an MCP server
-mcp = FastMCP("Bronto Search", stateless_http=True, streamable_http_path="/", json_response=True)
+mcp = FastMCP("Bronto", stateless_http=True, streamable_http_path="/", json_response=True)
 
 
 @mcp.tool(description="""Searches log data. This tool returns a list of log events and their attributes
