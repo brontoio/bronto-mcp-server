@@ -1,31 +1,14 @@
 from datetime import datetime, timezone
-import logging
-
+from typing import Dict, List
 from mcp.server.fastmcp import FastMCP
 from config import Config
-from clients import BrontoClient
+from clients import BrontoClient, logger
 
 # Create an MCP server
-mcp = FastMCP("Bronto Search")
-
-logger = logging.getLogger()
-# TODO: debugging issues is not easy. We try to get some visibility by logging to a file
-# even this is proving difficult sometime. Logging an error as part of an exception being raised seems to always
-# generate logs though.
-handler = logging.FileHandler('/tmp/bronto_mcp.log')
-handler.setLevel(logging.DEBUG)
-
-# Define the log message format
-formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-handler.setFormatter(formatter)
-
-# Attach the handler to the logger
-logger.addHandler(handler)
+mcp = FastMCP("Bronto", stateless_http=True, streamable_http_path="/", json_response=True)
 
 
-@mcp.tool()
-def search_logs(timerange_start: int, timerange_end: int, log_ids: list[str], search_filter='') -> list[str]:
-    """Searches log data. This tool returns a list of log events and their attributes
+@mcp.tool(description="""Searches log data. This tool returns a list of log events and their attributes
     The prompt should be a question or statement that you want for log data to be searched,
     such as "Can you please search some log data from datasets related to the Bronto ingestion system?".
     Only the @raw field should be presented to the user. No summary or other details should be presented to them.
@@ -40,7 +23,8 @@ def search_logs(timerange_start: int, timerange_end: int, log_ids: list[str], se
     - key names should be double-quoted
     - key value should be single-quoted if they are expected to be strings of characters
     - key value should not be quoted if they are expected to be numbers
-    """
+    """)
+def search_logs(timerange_start: int, timerange_end: int, log_ids: list[str], search_filter='') -> list[str]:
     logger.info('timerange_start=%s, timerange_end=%s, log_ids=%s', timerange_start, timerange_end, log_ids)
     try:
         config = Config()
@@ -52,10 +36,7 @@ def search_logs(timerange_start: int, timerange_end: int, log_ids: list[str], se
         return [f"Error. exc={e}"]
 
 
-@mcp.tool()
-def compute_metrics(timerange_start: int, timerange_end: int, log_ids: list[str], metric_functions: list[str],
-                    search_filter='', group_by_keys=None) -> list[str]:
-    """Computes metric data from log data. This tool returns a list of data points for each key in the group_by_keys
+@mcp.tool(description="""Computes metric data from log data. This tool returns a list of data points for each key in the group_by_keys
     list. Each list represents the value of the computed metrics for a subset of the provided time range.
 
     The prompt should be a question or statement that you want for a metric to be computed. For instance for web access
@@ -81,7 +62,9 @@ def compute_metrics(timerange_start: int, timerange_end: int, log_ids: list[str]
     server.
 
     The `group_by_keys` attribute of this tool expects a list of keys belonging to the
-    """
+    """)
+def compute_metrics(timerange_start: int, timerange_end: int, log_ids: list[str], metric_functions: list[str],
+                    search_filter='', group_by_keys=None) -> list[str]:
     if group_by_keys is None:
         group_by_keys = []
     logger.info('timerange_start=%s, timerange_end=%s, log_ids=%s, metric_functions=%s, group_by_keys=[%s]',
@@ -97,26 +80,24 @@ def compute_metrics(timerange_start: int, timerange_end: int, log_ids: list[str]
         return [f"Error. exc={e}"]
 
 
-@mcp.tool()
-def get_timestamp_as_unix_epoch(input_time: str) -> int:
-    """Provides a unix timestamp (in milliseconds) since epoch representation of the input time. This tool
+@mcp.tool(description="""Provides a unix timestamp (in milliseconds) since epoch representation of the input time. This tool
     takes 1 string as parameters, representing a time in the following format '%Y-%m-%d %H:%M:%S'. For instance with
     input_time='2025-05-01 00:00:00' then this tool returns 1746054000000. And with input_time='2025-05-01 01:00:00',
     then this tool returns 1746057600000
-    """
+    """)
+def get_timestamp_as_unix_epoch(input_time: str) -> int:
     return int(datetime.strptime(input_time, '%Y-%m-%d %H:%M:%S').astimezone(timezone.utc).timestamp()) * 1000
 
 
-@mcp.tool()
-def get_datasets() -> list[str]:
-    """Fetches all dataset details. This tool returns a list strings. Each string provides
+@mcp.tool(description="""Fetches all dataset details. This tool returns a list strings. Each string provides
     - the name of the dataset
     - the collection it belongs to
     - its log ID, which is a UUID, i.e. a 36 character long string
     - a list of tags associated to the dataset. Each tag is a key-value pair. The key and the value are separated with an equal
     sign, i.e. the "=" character and the values are quoted with double quotes. Tags such as the `description` tag are
     particularly useful to understand the type of data that the dataset contains.
-    """
+    """)
+def get_datasets() -> list[str]:
     config = Config()
     bronto_client = BrontoClient(config.bronto_api_key, config.bronto_api_endpoint)
     datasets = bronto_client.get_datasets()
@@ -129,15 +110,14 @@ def get_datasets() -> list[str]:
     return result
 
 
-@mcp.tool()
-def get_dataset_by_name(dataset_name: str, collection_name: str) -> list[str]:
-    """Fetches details about a Bronto dataset. A dataset is uniquely identify by its name and its collection name. In
+@mcp.tool(description="""Fetches details about a Bronto dataset. A dataset is uniquely identify by its name and its collection name. In
     other words, several datasets with the same name can be associated with different collections. However only one
     dataset with a given name can be associated to a given collection.
     This tool provides details about the dataset whose name and collection name match `dataset_name` and
     `collection_name`. Details contains for instance the dataset log ID as well as all the tags associated to this
     dataset.
-    """
+    """)
+def get_dataset_by_name(dataset_name: str, collection_name: str) -> list[str]:
     config = Config()
     bronto_client = BrontoClient(config.bronto_api_key, config.bronto_api_endpoint)
     datasets = bronto_client.get_datasets()
@@ -158,26 +138,23 @@ def get_dataset_by_name(dataset_name: str, collection_name: str) -> list[str]:
     return result
 
 
-@mcp.tool()
-def get_keys(log_id: str) -> list[str]:
-    """Fetches all keys present in a dataset, which is represented by a log ID.
+@mcp.tool(description="""Fetches all keys present in a dataset, which is represented by a log ID.
     This tool takes a log ID as parameter. A log ID is a string representing a UUID. A log ID maps to a dataset and
     collection name. So given a dataset and collection name, it is possible to retrieve its log ID by using another tool
     which provides details on datasets.
     This tool returns a list strings. Each string provides the name of a key present in the provided dataset
-    """
+    """)
+def get_keys(log_id: str) -> Dict[str, List[str]]:
     config = Config()
     bronto_client = BrontoClient(config.bronto_api_key, config.bronto_api_endpoint)
     keys = bronto_client.get_keys(log_id)
     return keys
 
-@mcp.tool()
+@mcp.tool(description="This tool provides the current time in the YYYY-MM-DD HH:mm:ss format")
 def get_current_time():
-    """
-    This tool provides the current time in the YYYY-MM-DD HH:mm:ss format
-    """
     return datetime.strftime(datetime.now(), '%Y-%m-%d %H:%M:%S')
 
 
 if __name__ == "__main__":
-    mcp.run()
+    logger.info('Starting Bronto MCP server')
+    mcp.run(transport="streamable-http")

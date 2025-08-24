@@ -5,6 +5,7 @@ import urllib.request
 import logging
 import os
 import json
+from typing import Set, List, Dict
 
 logger = logging.getLogger()
 handler = logging.FileHandler('/tmp/bronto_mcp.log')
@@ -184,7 +185,22 @@ class BrontoClient:
             result = json.loads(resp.read()).get('result', [])
             return result
 
-    def get_keys(self, log_id):
+    def get_recent_keys(self, log_id) -> Dict[str, List[str]]:
+        now = int(time.time()) * 1000
+        ten_minutes_ago = now - 10 * 60 * 1000
+        data = self.search(ten_minutes_ago, now, [log_id], _select = ['*', '@raw'])
+        keys_and_values: Dict[str,List[str]] = {}
+        for event in data['result']:
+            for key in event:
+                if key.startswith('@'):
+                    continue
+                if key in keys_and_values:
+                    keys_and_values[key].append(event[key])
+                else:
+                    keys_and_values[key] = [event[key]]
+        return {key: list(set(keys_and_values[key])) for key in keys_and_values}
+
+    def get_top_keys(self, log_id) -> Dict[str, List[str]]:
         url_path = f'top-keys?log_id={log_id}'
         request = urllib.request.Request(os.path.join(self.api_endpoint, url_path), headers=self.headers)
         with urllib.request.urlopen(request) as resp:
@@ -192,6 +208,28 @@ class BrontoClient:
                 logger.error('Keys retrieval failed, log_id=%s status=%s, reason=%s',log_id, resp.status,
                              resp.reason)
             body = json.loads(resp.read())
-            keys = list(body.get(log_id, {}).keys())
-            logging.info('keys=%s', keys)
-            return keys
+            keys_and_values = {}
+            for key in body[log_id]:
+                if key in keys_and_values:
+                    keys_and_values[key].extend(body[log_id][key].get('values', {}).keys())
+                else:
+                    keys_and_values[key] = body[log_id][key].get('values', {}).keys()
+            logging.info('keys_and_values=%s', keys_and_values)
+            return {key: list(set(keys_and_values[key])) for key in keys_and_values}
+
+
+    def get_keys(self, log_id) -> Dict[str, List[str]]:
+        recent_keys = self.get_recent_keys(log_id)
+        top_keys = self.get_top_keys(log_id)
+        all_keys: Dict[str,List[str]] = {}
+        for key in recent_keys:
+            if key in all_keys:
+                all_keys[key].extend(recent_keys[key])
+            else:
+                all_keys[key] = recent_keys[key]
+        for key in top_keys:
+            if key in all_keys:
+                all_keys[key].extend(top_keys[key])
+            else:
+                all_keys[key] = top_keys[key]
+        return {key: list(set(all_keys[key])) for key in all_keys}
