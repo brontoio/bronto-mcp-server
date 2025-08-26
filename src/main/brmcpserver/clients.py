@@ -5,18 +5,12 @@ import urllib.request
 import logging
 import os
 import json
-from typing import Set, List, Dict
+from typing import List, Dict, Optional
+
+from models import DatasetKey, LogEvent
 
 logger = logging.getLogger()
-handler = logging.FileHandler('/tmp/bronto_mcp.log')
-handler.setLevel(logging.DEBUG)
 
-# Define the log message format
-formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-handler.setFormatter(formatter)
-
-# Attach the handler to the logger
-logger.addHandler(handler)
 
 class BrontoClient:
 
@@ -103,7 +97,7 @@ class BrontoClient:
             return datasets
 
     def search(self, timestamp_start: int, timestamp_end: int, log_ids: list[str], where='',
-               _select=None, group_by_keys=None):
+               _select=None, group_by_keys=None) -> List[LogEvent]:
         if group_by_keys is None:
             group_by_keys = []
         if _select is None:
@@ -122,6 +116,7 @@ class BrontoClient:
                       "&".join([urllib.parse.urlencode({'select': sel}) for sel in params.get("select")]) + '&' +
                       "&".join([urllib.parse.urlencode({'groups': key}) for key in params.get("group_by_keys")])
                       )
+        url_params = url_params[:len(url_params) - 1] if url_params.endswith('&') else url_params
         req_w_params = os.path.join(self.api_endpoint, url_path) + url_params
         request = urllib.request.Request(req_w_params, headers=self.headers)
         try:
@@ -129,9 +124,16 @@ class BrontoClient:
                 if resp.status != 200 and resp.status != 201:
                     logger.error('Search failed, status=%s, reason=%s',resp.status, resp.reason)
                 result = json.loads(resp.read())
-                return result
+                log_events: List[LogEvent] = []
+                for event in result.get('events', []):
+                    log_event = LogEvent(message=event['@raw'],
+                                         attributes={'@status': event['@status'], '@time': event['@time']})
+                    log_event.attributes.update(event['attributes'])
+                    log_event.attributes.update(event['message_kvs'])
+                    log_events.append(log_event)
+                return log_events
         except Exception as e:
-            print(e)
+            raise e
 
     def search_post(self, timestamp_start: int, timestamp_end: int, log_ids: list[str], where='',
                      _select=None, group_by_keys=None):
@@ -162,43 +164,19 @@ class BrontoClient:
             print(e)
 
 
-    def get_stats(self, timestamp_start: int, timestamp_end: int, log_ids: list[str], _select=None):
-        url_path = 'search'
-        params = {
-            'from': ':'.join(log_ids),
-            'from_ts': timestamp_start,
-            'to_ts': timestamp_end,
-            'groups': ['service', 'versions'],
-            'where': "'version inventory'"
-        }
-        if _select is not None:
-            params.update({'select': _select})
-        url_params = ('?' + urllib.parse.urlencode({'from': params.get("from")}) +
-                      f'&from_ts={params.get("from_ts")}&to_ts={params.get("to_ts")}&'
-                      + urllib.parse.urlencode({'select': params.get("select"), 'where': params.get("where")}) + '&' +
-                      "&".join([urllib.parse.urlencode({'groups': group}) for group in params.get("groups")]))
-        req_w_params = os.path.join(self.api_endpoint, url_path) + url_params
-        request = urllib.request.Request(req_w_params, headers=self.headers)
-        with urllib.request.urlopen(request) as resp:
-            if resp.status != 200 and resp.status != 201:
-                logger.error('Search failed, status=%s, reason=%s',resp.status, resp.reason)
-            result = json.loads(resp.read()).get('result', [])
-            return result
-
     def get_recent_keys(self, log_id) -> Dict[str, List[str]]:
         now = int(time.time()) * 1000
         ten_minutes_ago = now - 10 * 60 * 1000
-        data = self.search(ten_minutes_ago, now, [log_id], _select = ['*', '@raw'])
-        keys_and_values: Dict[str,List[str]] = {}
-        for event in data['result']:
-            for key in event:
-                if key.startswith('@'):
-                    continue
+        log_events: List[LogEvent] = self.search(ten_minutes_ago, now, [log_id], _select = ['*', '@raw'])
+        keys_and_values: Dict[str, List[str]] = {}
+        for event in log_events:
+            for key in event.attributes:
                 if key in keys_and_values:
-                    keys_and_values[key].append(event[key])
+                    keys_and_values[key].append(event.attributes[key])
                 else:
-                    keys_and_values[key] = [event[key]]
-        return {key: list(set(keys_and_values[key])) for key in keys_and_values}
+                    keys_and_values[key] = [event.attributes[key]]
+        keys_and_unique_values = {key: list(set(keys_and_values[key])) for key in keys_and_values}
+        return keys_and_unique_values
 
     def get_top_keys(self, log_id) -> Dict[str, List[str]]:
         url_path = f'top-keys?log_id={log_id}'
@@ -218,18 +196,29 @@ class BrontoClient:
             return {key: list(set(keys_and_values[key])) for key in keys_and_values}
 
 
-    def get_keys(self, log_id) -> Dict[str, List[str]]:
+    @staticmethod
+    def _get_dataset_key(key_name: str, dataset_keys: List[DatasetKey]) -> Optional[DatasetKey]:
+        for dataset_key in dataset_keys:
+            if dataset_key.name == key_name:
+                return dataset_key
+        return None
+
+
+    def get_keys(self, log_id) -> List[DatasetKey]:
         recent_keys = self.get_recent_keys(log_id)
         top_keys = self.get_top_keys(log_id)
-        all_keys: Dict[str,List[str]] = {}
+        result = []
+        processed_keys = set()
         for key in recent_keys:
-            if key in all_keys:
-                all_keys[key].extend(recent_keys[key])
+            if key in processed_keys:
+                dataset = BrontoClient._get_dataset_key(key, result)
+                dataset.add_values(recent_keys[key])
             else:
-                all_keys[key] = recent_keys[key]
+                result.append(DatasetKey(name=key, values=recent_keys[key]))
         for key in top_keys:
-            if key in all_keys:
-                all_keys[key].extend(top_keys[key])
+            if key in processed_keys:
+                dataset = BrontoClient._get_dataset_key(key, result)
+                dataset.add_values(top_keys[key])
             else:
-                all_keys[key] = top_keys[key]
-        return {key: list(set(all_keys[key])) for key in all_keys}
+                result.append(DatasetKey(name=key, values=top_keys[key]))
+        return result
