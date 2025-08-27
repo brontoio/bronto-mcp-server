@@ -1,15 +1,27 @@
 import time
 
-import zstd
 import urllib.request
 import logging
 import os
 import json
 from typing import List, Dict, Optional
+from urllib.error import HTTPError
 
 from models import DatasetKey, LogEvent
 
 logger = logging.getLogger()
+
+
+class FailedBrontoRequestException(Exception):
+    pass
+
+
+class BrontoResponseDecodingException(Exception):
+    pass
+
+
+class BrontoResponseException(Exception):
+    pass
 
 
 class BrontoClient:
@@ -23,78 +35,38 @@ class BrontoClient:
             'x-bronto-api-key': self.api_key
         }
 
-    def _create_export(self, timestamp_start: int, timestamp_end: int, log_ids: list[str]):
-        url_path = 'exports'
-        payload = json.dumps({'search_details':
-                                  {'from': ':'.join(log_ids), 'from_ts': timestamp_start, 'to_ts': timestamp_end,
-                                   'where': ''}
-                              }).encode()
-        endpoint = os.path.join(self.api_endpoint, url_path)
-        request = urllib.request.Request(endpoint, data=payload, headers=self.headers)
-        logger.info('Export creation. endpoint=%s, path=%s, payload=%s', endpoint, url_path, payload)
-        try:
-            with urllib.request.urlopen(request) as resp:
-                logger.info('Export creation status, status=%s',resp.status)
-                if resp.status != 200 and resp.status != 201:
-                    logger.error('Export creation failed, status=%s, reason=%s',resp.status, resp.reason)
-                    return None
-                result = json.loads(resp.read())
-                export_id = result.get('export_id')
-                logger.info('Export created successfully. export_id=%s', export_id)
-                return result
-        except Exception as e:
-            logger.error('ERROR creating export! endpoint=%s, path=%s, payload=%s', endpoint, url_path,
-                         payload, exc_info=e)
-
-    def retrieve_log_data(self, export_id, progress):
-        url_path = f'exports/{export_id}'
-        request = urllib.request.Request(os.path.join(self.api_endpoint, url_path), headers=self.headers)
-        max_attempts = 5
-        attempts = 0
-        wait_between_attempts_sec = 3
-        result = {}
-        while progress < 100 and attempts < max_attempts:
-            time.sleep(wait_between_attempts_sec)
-            attempts += 1
-            with urllib.request.urlopen(request) as resp:
-                logger.info('Export retrieval status, status=%s',resp.status)
-                if resp.status != 200 and resp.status != 201:
-                    logger.error('Export retrieval failed, status=%s, reason=%s',resp.status, resp.reason)
-                    continue
-                result = json.loads(resp.read())
-                progress = result.get('progress')
-                logger.info('Export retrieval progress, progress=%s',progress)
-        if progress == 100:
-            logger.info('Export completed successfully. export_id=%s', export_id)
-            s3_location = result.get('location')
-            with urllib.request.urlopen(s3_location) as resp:
-                if resp.status != 200 and resp.status != 201:
-                    logger.error('Data retrieval from S3 failed, status=%s, reason=%s, url=%s',resp.status,
-                                 resp.reason, s3_location)
-                    return
-                return resp.read()
-        return None
-
-    def get_log_data(self, timestamp_start: int, timestamp_end: int, log_ids: list[str]):
-        result = self._create_export(timestamp_start, timestamp_end, log_ids)
-        if result is None:
-            return None
-        export_id = result.get('export_id')
-        progress = result.get('progress')
-        compressed_data = self.retrieve_log_data(export_id, progress)
-        raw_data = zstd.decompress(compressed_data)
-        data = raw_data.decode()
-        return data
-
     def get_datasets(self):
         url_path = 'logs'
         request = urllib.request.Request(os.path.join(self.api_endpoint, url_path), headers=self.headers)
-        with urllib.request.urlopen(request) as resp:
-            if resp.status != 200 and resp.status != 201:
-                logger.error('Dataset retrieval failed, status=%s, reason=%s',resp.status, resp.reason)
-            datasets = json.loads(resp.read()).get('logs', [])
-            logging.info('DATASETS=%s', datasets)
-            return datasets
+        try:
+            with urllib.request.urlopen(request) as resp:
+                if resp.status != 200 and resp.status != 201:
+                    logger.error('Dataset retrieval failed, status=%s, reason=%s',resp.status, resp.reason)
+                    raise FailedBrontoRequestException(f'Cannot retrieve datasets from Bronto. status={resp.status}, '
+                                                       f'reason="{resp.reason}"')
+                try:
+                    datasets = json.loads(resp.read()).get('logs', [])
+                except json.decoder.JSONDecodeError as _:
+                    logger.error('Cannot decode dataset retrieval response', exc_info=True)
+                    raise BrontoResponseDecodingException('Unexpected format for retrieved datasets')
+                return datasets
+        except (FailedBrontoRequestException, BrontoResponseDecodingException) as e:
+            raise e
+        except HTTPError as e:
+            if e.code == 400:
+                raise BrontoResponseException('One of the search parameters is unsuitable. Check the filter syntax as '
+                                              'well as the names of the keys used in the "where", "_select" and '
+                                              '"group_by_keys" parameters.')
+            if e.code == 403:
+                raise BrontoResponseException('You are not allowed to perform this Bronto search. Please check your '
+                                              'Bronto API key')
+            if e.code == 401:
+                raise BrontoResponseException('You are not authorised to perform this Bronto search. Please check your '
+                                              'Bronto API key, as well as the Bronto endpoint, to make sure that they '
+                                              'match')
+        except Exception as _:
+            logger.exception('Cannot interact with Bronto', exc_info=True)
+            raise Exception('Cannot interact with Bronto. Please check endpoint configuration.')
 
     def search(self, timestamp_start: int, timestamp_end: int, log_ids: list[str], where='',
                _select=None, group_by_keys=None) -> List[LogEvent]:
@@ -123,7 +95,14 @@ class BrontoClient:
             with urllib.request.urlopen(request) as resp:
                 if resp.status != 200 and resp.status != 201:
                     logger.error('Search failed, status=%s, reason=%s',resp.status, resp.reason)
-                result = json.loads(resp.read())
+                    raise FailedBrontoRequestException(f'Cannot retrieve data from Bronto. status={resp.status}, '
+                                                       f'reason="{resp.reason}"')
+                try:
+                    result = json.loads(resp.read())
+                except json.decoder.JSONDecodeError as _:
+                    logger.error('Cannot decode search response', exc_info=True)
+                    raise BrontoResponseDecodingException('Unexpected format for retrieved data')
+
                 log_events: List[LogEvent] = []
                 for event in result.get('events', []):
                     log_event = LogEvent(message=event['@raw'],
@@ -132,11 +111,26 @@ class BrontoClient:
                     log_event.attributes.update(event['message_kvs'])
                     log_events.append(log_event)
                 return log_events
-        except Exception as e:
+        except (FailedBrontoRequestException, BrontoResponseDecodingException) as e:
             raise e
+        except HTTPError as e:
+            if e.code == 400:
+                raise BrontoResponseException('One of the search parameters is unsuitable. Check the filter syntax as '
+                                              'well as the names of the keys used in the "where", "_select" and '
+                                              '"group_by_keys" parameters.')
+            if e.code == 403:
+                raise BrontoResponseException('You are not allowed to perform this Bronto search. Please check your '
+                                              'Bronto API key')
+            if e.code == 401:
+                raise BrontoResponseException('You are not authorised to perform this Bronto search. Please check your '
+                                              'Bronto API key, as well as the Bronto endpoint, to make sure that they '
+                                              'match')
+        except Exception as _:
+            logger.exception('Cannot interact with Bronto', exc_info=True)
+            raise Exception('Cannot interact with Bronto. Please check endpoint configuration.')
 
-    def search_post(self, timestamp_start: int, timestamp_end: int, log_ids: list[str], where='',
-                     _select=None, group_by_keys=None):
+    def search_post(self, timestamp_start: int, timestamp_end: int, log_ids: list[str], where='', _select=None,
+                    group_by_keys=None):
         if group_by_keys is None:
             group_by_keys = []
         if _select is None:
@@ -158,11 +152,31 @@ class BrontoClient:
             with urllib.request.urlopen(request) as resp:
                 if resp.status != 200 and resp.status != 201:
                     logger.error('Search failed, status=%s, reason=%s',resp.status, resp.reason)
-                result = json.loads(resp.read())
+                    raise FailedBrontoRequestException(f'Cannot retrieve data from Bronto. status={resp.status}, '
+                                                       f'reason="{resp.reason}"')
+                try:
+                    result = json.loads(resp.read())
+                except json.decoder.JSONDecodeError as _:
+                    logger.error('Cannot decode search response', exc_info=True)
+                    raise BrontoResponseDecodingException('Unexpected format for retrieved data')
                 return result
-        except Exception as e:
-            print(e)
-
+        except (FailedBrontoRequestException, BrontoResponseDecodingException) as e:
+            raise e
+        except HTTPError as e:
+            if e.code == 400:
+                raise BrontoResponseException('One of the search parameters is unsuitable. Check the filter syntax as '
+                                              'well as the names of the keys used in the "where", "_select" and '
+                                              '"group_by_keys" parameters.')
+            if e.code == 403:
+                raise BrontoResponseException('You are not allowed to perform this Bronto search. Please check your '
+                                              'Bronto API key')
+            if e.code == 401:
+                raise BrontoResponseException('You are not authorised to perform this Bronto search. Please check your '
+                                              'Bronto API key, as well as the Bronto endpoint, to make sure that they '
+                                              'match')
+        except Exception as _:
+            logger.error('Cannot interact with Bronto', exc_info=True)
+            raise Exception('Cannot interact with Bronto. Please check endpoint configuration.')
 
     def get_recent_keys(self, log_id) -> Dict[str, List[str]]:
         now = int(time.time()) * 1000
@@ -181,20 +195,44 @@ class BrontoClient:
     def get_top_keys(self, log_id) -> Dict[str, List[str]]:
         url_path = f'top-keys?log_id={log_id}'
         request = urllib.request.Request(os.path.join(self.api_endpoint, url_path), headers=self.headers)
-        with urllib.request.urlopen(request) as resp:
-            if resp.status != 200 and resp.status != 201:
-                logger.error('Keys retrieval failed, log_id=%s status=%s, reason=%s',log_id, resp.status,
-                             resp.reason)
-            body = json.loads(resp.read())
-            keys_and_values = {}
-            for key in body[log_id]:
-                if key in keys_and_values:
-                    keys_and_values[key].extend(body[log_id][key].get('values', {}).keys())
-                else:
-                    keys_and_values[key] = body[log_id][key].get('values', {}).keys()
-            logging.info('keys_and_values=%s', keys_and_values)
-            return {key: list(set(keys_and_values[key])) for key in keys_and_values}
+        try:
+            with urllib.request.urlopen(request) as resp:
+                if resp.status != 200 and resp.status != 201:
+                    logger.error('Keys retrieval failed, log_id=%s status=%s, reason=%s',log_id, resp.status,
+                                 resp.reason)
+                    raise FailedBrontoRequestException(f'Cannot retrieve top keys from Bronto. status={resp.status}, '
+                                                       f'reason="{resp.reason}"')
+                try:
+                    body = json.loads(resp.read())
+                except json.decoder.JSONDecodeError as _:
+                    logger.error('Cannot decode search response', exc_info=True)
+                    raise BrontoResponseDecodingException('Unexpected format for retrieved data')
 
+                keys_and_values = {}
+                for key in body[log_id]:
+                    if key in keys_and_values:
+                        keys_and_values[key].extend(body[log_id][key].get('values', {}).keys())
+                    else:
+                        keys_and_values[key] = body[log_id][key].get('values', {}).keys()
+                logging.info('keys_and_values=%s', keys_and_values)
+                return {key: list(set(keys_and_values[key])) for key in keys_and_values}
+        except (FailedBrontoRequestException, BrontoResponseDecodingException) as e:
+            raise e
+        except HTTPError as e:
+            if e.code == 400:
+                raise BrontoResponseException('One of the search parameters is unsuitable. Check the filter syntax as '
+                                              'well as the names of the keys used in the "where", "_select" and '
+                                              '"group_by_keys" parameters.')
+            if e.code == 403:
+                raise BrontoResponseException('You are not allowed to perform this Bronto search. Please check your '
+                                              'Bronto API key')
+            if e.code == 401:
+                raise BrontoResponseException('You are not authorised to perform this Bronto search. Please check your '
+                                              'Bronto API key, as well as the Bronto endpoint, to make sure that they '
+                                              'match')
+        except Exception as _:
+            logger.error('Cannot interact with Bronto', exc_info=True)
+            raise Exception('Cannot interact with Bronto. Please check endpoint configuration.')
 
     @staticmethod
     def _get_dataset_key(key_name: str, dataset_keys: List[DatasetKey]) -> Optional[DatasetKey]:
@@ -202,7 +240,6 @@ class BrontoClient:
             if dataset_key.name == key_name:
                 return dataset_key
         return None
-
 
     def get_keys(self, log_id) -> List[DatasetKey]:
         recent_keys = self.get_recent_keys(log_id)
