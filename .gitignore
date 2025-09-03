@@ -51,6 +51,10 @@ terraform.rc
 
 # Python virtual envs
 **/env/
+test_env/
+
+# Coverage
+**/.coverage
 
 # Minikube
 **/minikube-darwin-arm64

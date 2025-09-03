@@ -5,7 +5,7 @@ from pydantic import Field, BeforeValidator
 from typing_extensions import Annotated
 from datetime import datetime, timezone
 from typing import List, Optional, Dict
-from models import Dataset, DatasetKey, LogEvent, Datapoint, Timeseries
+from models import Dataset, LogEvent, Datapoint, Timeseries
 
 from clients import BrontoClient
 
@@ -70,7 +70,24 @@ class BrontoTools:
                 which provides details on datasets.
                 This tool returns a list strings. Each string provides the name of a key present in the provided dataset
                 """
-        )(self.get_keys)
+        )(self.get_dataset_keys)
+
+        mcp.tool(
+            name='get_all_datasets_keys',
+            description="""Fetches all keys present in all datasets.
+                This tool returns a list of strings. Each string provides the name of a key present in the provided 
+                dataset. This tool is useful in cases such as:
+                - to select datasets the contain certain keys
+                - to identify the exact key name based on some description 
+                """
+        )(self.get_all_datasets_keys)
+
+        mcp.tool(
+            name='get_key_values',
+            description="""Fetches the values of the provided key and dataset ID.
+                This tool returns a list of strings. Each string provides the value of the key provided as input, for 
+                the dataset provided as input."""
+        )(self.get_key_values)
 
         mcp.tool(
             name='get_current_time',
@@ -183,13 +200,12 @@ class BrontoTools:
             input_time: Annotated[
                 str,
                 BeforeValidator(_validate_input_time),
-                Field(description='Time represented in the "%Y-%m-%d %H:%M:%S" format')]
+                Field(description='Time represented in the "%Y-%m-%d %H:%M:%S" format. Timezone is assumed to be UTC')]
     ) -> Annotated[
         int,
         Field(description='A unix timestamp (in milliseconds) since epoch, representing the `input_time` parameter')
     ]:
-        return int(datetime.strptime(input_time, '%Y-%m-%d %H:%M:%S').astimezone(timezone.utc).timestamp()) * 1000
-
+        return int(datetime.strptime(input_time, '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc).timestamp()) * 1000
 
     def get_datasets(self) -> Annotated[
         List[Dataset],
@@ -207,7 +223,6 @@ class BrontoTools:
             result.append(Dataset(name=dataset["log"], collection=dataset["logset"], log_id=dataset["log_id"],
                                   tags=dataset["tags"]))
         return result
-
 
     def get_datasets_by_name(
             self,
@@ -233,16 +248,33 @@ class BrontoTools:
             return []
         return result
 
-
-    def get_keys(
+    def get_dataset_keys(
             self,
             log_id: Annotated[str, Field(description='The dataset ID, also named log ID', min_length=36, max_length=36)]
     ) -> Annotated[
-        List[DatasetKey],
+        List[str],
         Field(description='list key names for keys present in the provided dataset referenced with the `log_id` parameter')
     ]:
-        keys = self.bronto_client.get_keys(log_id)
+        keys = [dataset.name for dataset in self.bronto_client.get_keys(log_id)]
         return keys
+
+    def get_all_datasets_keys(self) -> Annotated[
+        Dict[str, List[str]],
+        Field(description='Map from dataset IDs to the list of key names, for keys present in each dataset')
+    ]:
+        keys = self.bronto_client.get_all_datasets_top_keys()
+        return keys
+
+    def get_key_values(
+            self,
+            key: Annotated[str, Field(description='The name of a key')],
+            log_id: Annotated[str, Field(description='A string representing a dataset ID')]
+    ) -> Annotated[List[str], Field(description='The list of values of the provided key, present in the provided '
+                                                'dataset.')]:
+        datasets_top_keys_and_values = self.bronto_client.get_all_datasets_top_keys_and_values()
+        keys_and_values = datasets_top_keys_and_values.get(log_id, {})
+        key_and_values = keys_and_values.get(key, {})
+        return key_and_values.get('values', {}).get(key, [])
 
     @staticmethod
     def get_current_time() -> Annotated[str, Field(description='the current time in the YYYY-MM-DD HH:mm:ss format')]:

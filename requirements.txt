@@ -1,4 +1,1 @@
-mcp[cli]
-zstd
-
-pytest
+mcp[cli]==1.13.1
