@@ -1,6 +1,5 @@
 import urllib.request
 import logging
-import os
 import json
 from typing import List, Dict, Optional
 from urllib.error import HTTPError
@@ -33,9 +32,14 @@ class BrontoClient:
             'x-bronto-api-key': self.api_key
         }
 
+    @staticmethod
+    def _url_join(base, path):
+        """Join URL parts using forward slashes (os.path.join uses backslashes on Windows)."""
+        return base.rstrip('/') + '/' + path.lstrip('/')
+
     def get_datasets(self):
         url_path = 'logs'
-        request = urllib.request.Request(os.path.join(self.api_endpoint, url_path), headers=self.headers)
+        request = urllib.request.Request(BrontoClient._url_join(self.api_endpoint, url_path), headers=self.headers)
         try:
             with urllib.request.urlopen(request) as resp:
                 if resp.status != 200 and resp.status != 201:
@@ -87,7 +91,7 @@ class BrontoClient:
                       "&".join([urllib.parse.urlencode({'groups': key}) for key in params.get("group_by_keys")])
                       )
         url_params = url_params[:len(url_params) - 1] if url_params.endswith('&') else url_params
-        req_w_params = os.path.join(self.api_endpoint, url_path) + url_params
+        req_w_params = BrontoClient._url_join(self.api_endpoint, url_path) + url_params
         request = urllib.request.Request(req_w_params, headers=self.headers)
         try:
             with urllib.request.urlopen(request) as resp:
@@ -143,7 +147,7 @@ class BrontoClient:
             'groups': group_by_keys,
             'num_of_slices': 10
         }
-        req_w_params = os.path.join(self.api_endpoint, url_path)
+        req_w_params = BrontoClient._url_join(self.api_endpoint, url_path)
         request = urllib.request.Request(req_w_params, method='POST', data=json.dumps(params).encode(),
                                          headers=self.headers)
         try:
@@ -178,7 +182,7 @@ class BrontoClient:
 
     def get_top_keys(self, log_id) -> Dict[str, List[str]]:
         url_path = f'top-keys?log_id={log_id}'
-        request = urllib.request.Request(os.path.join(self.api_endpoint, url_path), headers=self.headers)
+        request = urllib.request.Request(BrontoClient._url_join(self.api_endpoint, url_path), headers=self.headers)
         try:
             with urllib.request.urlopen(request) as resp:
                 if resp.status != 200 and resp.status != 201:
@@ -220,7 +224,7 @@ class BrontoClient:
 
     def get_all_datasets_top_keys(self) -> Dict[str, List[str]]:
         url_path = f'top-keys'
-        request = urllib.request.Request(os.path.join(self.api_endpoint, url_path), headers=self.headers)
+        request = urllib.request.Request(BrontoClient._url_join(self.api_endpoint, url_path), headers=self.headers)
         try:
             with urllib.request.urlopen(request) as resp:
                 if resp.status != 200 and resp.status != 201:
@@ -260,7 +264,7 @@ class BrontoClient:
 
     def get_all_datasets_top_keys_and_values(self) -> Dict[str, Dict[str, List[str]]]:
         url_path = f'top-keys'
-        request = urllib.request.Request(os.path.join(self.api_endpoint, url_path), headers=self.headers)
+        request = urllib.request.Request(BrontoClient._url_join(self.api_endpoint, url_path), headers=self.headers)
         try:
             with urllib.request.urlopen(request) as resp:
                 if resp.status != 200 and resp.status != 201:
