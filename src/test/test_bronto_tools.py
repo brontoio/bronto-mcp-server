@@ -1,10 +1,9 @@
 import pytest
 import time
-from datetime import datetime
 from unittest.mock import Mock
 
 from tools import BrontoTools
-from models import Datapoint, Timeseries, DatasetKey, LogEvent
+from models import Datapoint, Timeseries, LogEvent
 from clients import BrontoClient
 
 
@@ -17,25 +16,6 @@ def mock_bronto_client(monkeypatch):
 @pytest.fixture
 def bronto_tools(mock_bronto_client):
     return BrontoTools(mock_bronto_client)
-
-
-def test_get_current_time():
-    current_time = BrontoTools.get_current_time()
-    assert isinstance(current_time, str)
-    datetime.strptime(current_time, "%Y-%m-%d %H:%M:%S")
-
-
-def test_get_timestamp_as_unix_epoch():
-    test_time = "2025-05-01 00:00:00"
-    timestamp = BrontoTools.get_timestamp_as_unix_epoch(test_time)
-    assert isinstance(timestamp, int)
-    assert timestamp == 1746057600000
-
-
-def test_get_timestamp_as_unix_epoch_wrong_format():
-    test_time = "2025/05/01 00:00:00"
-    with pytest.raises(ValueError):
-        BrontoTools.get_timestamp_as_unix_epoch(test_time)
 
 
 def test_get_datasets(bronto_tools, mock_bronto_client):
@@ -116,8 +96,8 @@ def test_search_logs(bronto_tools, mock_bronto_client):
     assert log_event2 in log_events
 
 
-def test_compute_metrics_no_group(bronto_tools, mock_bronto_client):
-    timestamp = BrontoTools.get_timestamp_as_unix_epoch("2023-01-01 00:00:00")
+def test_timeseries_no_group(bronto_tools, mock_bronto_client):
+    timestamp = 1672531200000
     mock_response = {
         "totals": {
             "count": 100,
@@ -128,7 +108,7 @@ def test_compute_metrics_no_group(bronto_tools, mock_bronto_client):
     }
     mock_bronto_client.search_post.return_value = mock_response
 
-    metrics = bronto_tools.compute_metrics(
+    metrics = bronto_tools.timeseries(
         log_ids=["test_log_id"],
         metric_functions=["SUM"],
         timerange_start=int(time.time()) * 1000,
@@ -147,8 +127,8 @@ def test_compute_metrics_no_group(bronto_tools, mock_bronto_client):
     )
 
 
-def test_compute_metrics_single_group(bronto_tools, mock_bronto_client):
-    timestamp = BrontoTools.get_timestamp_as_unix_epoch("2023-01-01 00:00:00")
+def test_timeseries_single_group(bronto_tools, mock_bronto_client):
+    timestamp = 1672531200000
     mock_response = {
         "groups_series": [
             {
@@ -167,7 +147,7 @@ def test_compute_metrics_single_group(bronto_tools, mock_bronto_client):
     }
     mock_bronto_client.search_post.return_value = mock_response
 
-    metrics = bronto_tools.compute_metrics(
+    metrics = bronto_tools.timeseries(
         log_ids=["test_log_id"],
         metric_functions=["SUM"],
         timerange_start=int(time.time()) * 1000,
