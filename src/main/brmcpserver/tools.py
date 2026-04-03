@@ -20,6 +20,7 @@ class BrontoTools:
     def register(self, mcp):
         mcp.tool(
             name='search_logs',
+            title='Execute Event Query',
             description="""Searches log data. This tool returns a list of log events and their attributes
                 The prompt should be a question or statement that you want for log data to be searched,
                 such as "Can you please search some log data from datasets related to the Bronto ingestion system?".
@@ -29,6 +30,7 @@ class BrontoTools:
 
         mcp.tool(
             name='timeseries',
+            title='Execute Aggregate or Time-Series Query',
             description="""Computes metric data from log data. This tool returns a list of data points for each key in the group_by_keys
                 list. Each list represents the value of the computed metrics for a subset of the provided time range.
             
@@ -41,11 +43,13 @@ class BrontoTools:
 
         mcp.tool(
             name='get_datasets',
+            title='Retrieve a List of Logs',
             description='Fetches all dataset details'
         )(self.get_datasets)
 
         mcp.tool(
             name='get_datasets_by_name',
+            title='Find Datasets by Name and Collection',
             description="""Fetches details about a Bronto dataset. A dataset is uniquely identify by its name and its 
                 collection name. In other words, several datasets with the same name can be associated with different collections. 
                 However only one dataset with a given name can be associated to a given collection.
@@ -54,6 +58,7 @@ class BrontoTools:
 
         mcp.tool(
             name='get_keys',
+            title='Get Top Keys for a Specific Log ID',
             description="""Fetches all keys present in a dataset, which is represented by a log ID.
                 This tool takes a log ID as parameter. A log ID is a string representing a UUID. A log ID maps to a dataset and
                 collection name. So given a dataset and collection name, it is possible to retrieve its log ID by using another tool
@@ -64,6 +69,7 @@ class BrontoTools:
 
         mcp.tool(
             name='get_all_datasets_keys',
+            title='Retrieve Top Keys for Logs',
             description="""Fetches all keys present in all datasets.
                 This tool returns a list of strings. Each string provides the name of a key present in the provided 
                 dataset. This tool is useful in cases such as:
@@ -74,6 +80,7 @@ class BrontoTools:
 
         mcp.tool(
             name='get_key_values',
+            title='Retrieve Values for a Dataset Key',
             description="""Fetches the values of the provided key and dataset ID.
                 This tool returns a list of strings. Each string provides the value of the key provided as input, for 
                 the dataset provided as input."""
