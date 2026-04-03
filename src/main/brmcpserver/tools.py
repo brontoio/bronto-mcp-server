@@ -1,9 +1,8 @@
 import time
 import logging
 
-from pydantic import Field, BeforeValidator
+from pydantic import Field
 from typing_extensions import Annotated
-from datetime import datetime, timezone
 from typing import List, Optional, Dict
 from models import Dataset, LogEvent, Datapoint, Timeseries
 
@@ -21,6 +20,7 @@ class BrontoTools:
     def register(self, mcp):
         mcp.tool(
             name='search_logs',
+            title='Execute Event Query',
             description="""Searches log data. This tool returns a list of log events and their attributes
                 The prompt should be a question or statement that you want for log data to be searched,
                 such as "Can you please search some log data from datasets related to the Bronto ingestion system?".
@@ -29,7 +29,8 @@ class BrontoTools:
         )(self.search_logs)
 
         mcp.tool(
-            name='compute_metrics',
+            name='timeseries',
+            title='Execute Aggregate or Time-Series Query',
             description="""Computes metric data from log data. This tool returns a list of data points for each key in the group_by_keys
                 list. Each list represents the value of the computed metrics for a subset of the provided time range.
             
@@ -38,24 +39,17 @@ class BrontoTools:
                 time per path for the last hour?". The answer would then return the AVG(response_time) metric, grouped by URL path,
                 and split into a list of data points, one per every 5 minutes of the provided time range.
                 """
-        )(self.compute_metrics)
-
-        mcp.tool(
-            name='get_timestamp_as_unix_epoch',
-            description="""Provides a unix timestamp (in milliseconds) since epoch representation of the input time. This tool
-                takes 1 string as parameters, representing a time in the following format '%Y-%m-%d %H:%M:%S'. For instance with
-                input_time='2025-05-01 00:00:00' then this tool returns 1746054000000. And with input_time='2025-05-01 01:00:00',
-                then this tool returns 1746057600000
-                """
-        )(self.get_timestamp_as_unix_epoch)
+        )(self.timeseries)
 
         mcp.tool(
             name='get_datasets',
+            title='Retrieve a List of Logs',
             description='Fetches all dataset details'
         )(self.get_datasets)
 
         mcp.tool(
             name='get_datasets_by_name',
+            title='Find Datasets by Name and Collection',
             description="""Fetches details about a Bronto dataset. A dataset is uniquely identify by its name and its 
                 collection name. In other words, several datasets with the same name can be associated with different collections. 
                 However only one dataset with a given name can be associated to a given collection.
@@ -64,6 +58,7 @@ class BrontoTools:
 
         mcp.tool(
             name='get_keys',
+            title='Get Top Keys for a Specific Log ID',
             description="""Fetches all keys present in a dataset, which is represented by a log ID.
                 This tool takes a log ID as parameter. A log ID is a string representing a UUID. A log ID maps to a dataset and
                 collection name. So given a dataset and collection name, it is possible to retrieve its log ID by using another tool
@@ -74,6 +69,7 @@ class BrontoTools:
 
         mcp.tool(
             name='get_all_datasets_keys',
+            title='Retrieve Top Keys for Logs',
             description="""Fetches all keys present in all datasets.
                 This tool returns a list of strings. Each string provides the name of a key present in the provided 
                 dataset. This tool is useful in cases such as:
@@ -84,15 +80,11 @@ class BrontoTools:
 
         mcp.tool(
             name='get_key_values',
+            title='Retrieve Values for a Dataset Key',
             description="""Fetches the values of the provided key and dataset ID.
                 This tool returns a list of strings. Each string provides the value of the key provided as input, for 
                 the dataset provided as input."""
         )(self.get_key_values)
-
-        mcp.tool(
-            name='get_current_time',
-            description="This tool provides the current time in the YYYY-MM-DD HH:mm:ss format"
-        )(self.get_current_time)
 
     def search_logs(
             self,
@@ -118,8 +110,8 @@ class BrontoTools:
                 exposed by this MCP server. In any case, following SQL syntax,
                     - key names should be double-quoted
                     - key value should be single-quoted if they are expected to be strings of characters
-                    - key value should not be quoted if they are expected to be numbers."""
-                      )] = '',
+                    - key value should not be quoted if they are expected to be numbers.""")
+            ] = '',
     ) -> Annotated[
         List[LogEvent],
         Field(description='A list of log events and their attributes. Attributes are key-value pairs associated with '
@@ -129,7 +121,7 @@ class BrontoTools:
         log_events = self.bronto_client.search(timerange_start, timerange_end, log_ids, search_filter, _select=['*', '@raw'])
         return log_events
 
-    def compute_metrics(
+    def timeseries(
             self,
             timerange_start: Annotated[int, Field(
                 description='Unix timestamp in millisecond representing the start of a time range, e.g. 1756063146000',
@@ -186,26 +178,6 @@ class BrontoTools:
             timeseries = Timeseries(count=group_serie['count'], timeseries=datapoints)
             result[group_serie['name']] = timeseries
         return result
-
-    @staticmethod
-    def _validate_input_time(input_time: str) -> str:
-        try:
-            datetime.strptime(input_time, '%Y-%m-%d %H:%M:%S')
-            return input_time
-        except ValueError as e:
-            raise e
-
-    @staticmethod
-    def get_timestamp_as_unix_epoch(
-            input_time: Annotated[
-                str,
-                BeforeValidator(_validate_input_time),
-                Field(description='Time represented in the "%Y-%m-%d %H:%M:%S" format. Timezone is assumed to be UTC')]
-    ) -> Annotated[
-        int,
-        Field(description='A unix timestamp (in milliseconds) since epoch, representing the `input_time` parameter')
-    ]:
-        return int(datetime.strptime(input_time, '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc).timestamp()) * 1000
 
     def get_datasets(self) -> Annotated[
         List[Dataset],
@@ -275,7 +247,3 @@ class BrontoTools:
         keys_and_values = datasets_top_keys_and_values.get(log_id, {})
         key_and_values = keys_and_values.get(key, {})
         return key_and_values.get('values', {}).get(key, [])
-
-    @staticmethod
-    def get_current_time() -> Annotated[str, Field(description='the current time in the YYYY-MM-DD HH:mm:ss format')]:
-        return datetime.strftime(datetime.now(), '%Y-%m-%d %H:%M:%S')
