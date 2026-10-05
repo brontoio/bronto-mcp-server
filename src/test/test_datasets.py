@@ -75,3 +75,20 @@ def test_get_dataset_keys(monkeypatch):
     assert len(keys) == 2
     assert "key1" in keys
     assert "key2" in keys
+
+
+def test_get_key_values_returns_values_for_key(dataset_tools, mock_bronto_client):
+    mock_bronto_client.get_all_datasets_top_keys_and_values.return_value = {
+        "log-1": {"status": ["200", "500"], "path": ["/a"]},
+    }
+    assert dataset_tools.get_key_values("status", "log-1") == ["200", "500"]
+
+
+def test_get_key_values_unknown_key_or_dataset_is_empty(
+    dataset_tools, mock_bronto_client
+):
+    mock_bronto_client.get_all_datasets_top_keys_and_values.return_value = {
+        "log-1": {"status": ["200"]},
+    }
+    assert dataset_tools.get_key_values("missing", "log-1") == []
+    assert dataset_tools.get_key_values("status", "log-2") == []

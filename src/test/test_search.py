@@ -104,3 +104,13 @@ def test_timeseries_single_group(search_tools, mock_bronto_client):
     assert group.timeseries[0] == Datapoint(
         timestamp=timestamp, count=50, quantiles={}, value=10.5
     )
+
+
+def test_search_logs_time_range_descriptions_match_defaults():
+    import inspect
+
+    params = inspect.signature(SearchTools.search_logs).parameters
+    start = params["timerange_start"].annotation.__metadata__[0].description
+    end = params["timerange_end"].annotation.__metadata__[0].description
+    assert "defaults to 20 minutes ago" in start
+    assert "defaults to the current time" in end

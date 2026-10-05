@@ -80,5 +80,4 @@ class DatasetTools:
                                                 'dataset.')]:
         datasets_top_keys_and_values = self.bronto_client.get_all_datasets_top_keys_and_values()
         keys_and_values = datasets_top_keys_and_values.get(log_id, {})
-        key_and_values = keys_and_values.get(key, {})
-        return key_and_values.get('values', {}).get(key, [])
+        return keys_and_values.get(key, [])

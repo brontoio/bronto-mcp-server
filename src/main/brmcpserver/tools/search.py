@@ -22,12 +22,12 @@ class SearchTools:
             self,
             timerange_start: Annotated[Optional[int], Field(
                 description='Unix timestamp in millisecond representing the start of a time range, e.g. 1756063146000. '
-                            'If not specify, the current time is selected',
+                            'If not specified, defaults to 20 minutes ago',
                 default_factory=lambda _: (int(time.time()) - (20 * 60)) * 1000
             )],
             timerange_end: Annotated[Optional[int], Field(
                 description='Unix timestamp in millisecond representing the end of a time range, e.g. 1756063254000. '
-                            'If not specify, the time from 20 minutes ago is selected',
+                            'If not specified, defaults to the current time',
                 default_factory=lambda _: int(time.time()) * 1000
             )],
             log_ids: Annotated[list[str], Field(description='List of dataset IDs, identifying sets of log data. Each log ID '
