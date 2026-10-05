@@ -4,7 +4,7 @@ import json
 from typing import List, Dict, Optional
 from urllib.error import HTTPError
 
-from models import DatasetKey, LogEvent
+from bronto.models import DatasetKey, LogEvent
 
 logger = logging.getLogger()
 

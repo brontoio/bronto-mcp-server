@@ -1,10 +1,10 @@
-import pytest
 import time
 from unittest.mock import Mock
 
-from tools import BrontoTools
-from models import Datapoint, Timeseries, LogEvent
-from clients import BrontoClient
+import pytest
+from bronto.client import BrontoClient
+from bronto.models import Datapoint, LogEvent, Timeseries
+from tools.search import SearchTools
 
 
 @pytest.fixture
@@ -14,78 +14,17 @@ def mock_bronto_client(monkeypatch):
 
 
 @pytest.fixture
-def bronto_tools(mock_bronto_client):
-    return BrontoTools(mock_bronto_client)
+def search_tools(mock_bronto_client):
+    return SearchTools(mock_bronto_client)
 
 
-def test_get_datasets(bronto_tools, mock_bronto_client):
-    mock_datasets = [
-        {
-            "log": "test_dataset",
-            "logset": "test_collection",
-            "log_id": "test_log_id",
-            "tags": {"team": "test_team"},
-        }
-    ]
-    mock_bronto_client.get_datasets.return_value = mock_datasets
-    datasets = bronto_tools.get_datasets()
-    assert len(datasets) == 1
-    assert datasets[0].name == "test_dataset"
-    assert datasets[0].collection == "test_collection"
-    assert datasets[0].log_id == "test_log_id"
-    assert datasets[0].tags == {"team": "test_team"}
-
-
-def test_get_datasets_by_name(bronto_tools, mock_bronto_client):
-    mock_datasets = [
-        {
-            "log": "test_dataset",
-            "logset": "test_collection",
-            "log_id": "test_log_id",
-            "tags": {"team": "test_team"},
-        }
-    ]
-    mock_bronto_client.get_datasets.return_value = mock_datasets
-    datasets = bronto_tools.get_datasets_by_name("test_dataset", "test_collection")
-    assert len(datasets) == 1
-    assert datasets[0].name == "test_dataset"
-
-
-def test_get_datasets_by_name_no_match(bronto_tools, mock_bronto_client):
-    mock_datasets = [
-        {
-            "log": "other_dataset",
-            "logset": "other_collection",
-            "log_id": "other_log_id",
-            "tags": {},
-        }
-    ]
-    mock_bronto_client.get_datasets.return_value = mock_datasets
-    datasets = bronto_tools.get_datasets_by_name("test_dataset", "test_collection")
-    assert len(datasets) == 0
-
-
-def test_get_dataset_keys(monkeypatch):
-    bronto_client = BrontoClient("some_api_key", "some_endpoint")
-    monkeypatch.setattr(
-        BrontoClient,
-        "get_top_keys",
-        lambda _, __: {"key1": ["value1", "1"], "key2": ["value2", "2"]},
-    )
-    bronto_tools = BrontoTools(bronto_client)
-    keys = bronto_tools.get_dataset_keys("test_log_id")
-    assert len(keys) == 2
-    assert "key1" in keys
-    assert "key2" in keys
-
-
-def test_search_logs(bronto_tools, mock_bronto_client):
+def test_search_logs(search_tools, mock_bronto_client):
     log_event1 = LogEvent(message="test_event1", attributes={"key1": "value1"})
     log_event2 = LogEvent(message="test_event2", attributes={"key2": "value2"})
     mock_log_events = [log_event1, log_event2]
     mock_bronto_client.search.return_value = mock_log_events
 
-    log_events = bronto_tools.search_logs(
+    log_events = search_tools.search_logs(
         log_ids=["test_log_id"],
         timerange_start=int(time.time()) * 1000,
         timerange_end=int(time.time()) * 1000,
@@ -96,7 +35,7 @@ def test_search_logs(bronto_tools, mock_bronto_client):
     assert log_event2 in log_events
 
 
-def test_timeseries_no_group(bronto_tools, mock_bronto_client):
+def test_timeseries_no_group(search_tools, mock_bronto_client):
     timestamp = 1672531200000
     mock_response = {
         "totals": {
@@ -108,7 +47,7 @@ def test_timeseries_no_group(bronto_tools, mock_bronto_client):
     }
     mock_bronto_client.search_post.return_value = mock_response
 
-    metrics = bronto_tools.timeseries(
+    metrics = search_tools.timeseries(
         log_ids=["test_log_id"],
         metric_functions=["SUM"],
         timerange_start=int(time.time()) * 1000,
@@ -127,7 +66,7 @@ def test_timeseries_no_group(bronto_tools, mock_bronto_client):
     )
 
 
-def test_timeseries_single_group(bronto_tools, mock_bronto_client):
+def test_timeseries_single_group(search_tools, mock_bronto_client):
     timestamp = 1672531200000
     mock_response = {
         "groups_series": [
@@ -147,7 +86,7 @@ def test_timeseries_single_group(bronto_tools, mock_bronto_client):
     }
     mock_bronto_client.search_post.return_value = mock_response
 
-    metrics = bronto_tools.timeseries(
+    metrics = search_tools.timeseries(
         log_ids=["test_log_id"],
         metric_functions=["SUM"],
         timerange_start=int(time.time()) * 1000,
@@ -165,3 +104,13 @@ def test_timeseries_single_group(bronto_tools, mock_bronto_client):
     assert group.timeseries[0] == Datapoint(
         timestamp=timestamp, count=50, quantiles={}, value=10.5
     )
+
+
+def test_search_logs_time_range_descriptions_match_defaults():
+    import inspect
+
+    params = inspect.signature(SearchTools.search_logs).parameters
+    start = params["timerange_start"].annotation.__metadata__[0].description
+    end = params["timerange_end"].annotation.__metadata__[0].description
+    assert "defaults to 20 minutes ago" in start
+    assert "defaults to the current time" in end
