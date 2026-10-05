@@ -72,7 +72,7 @@ class SavedSearchTools:
             saved_search_id: Annotated[str, Field(description='Id of the saved search to run.')],
             time_range: Annotated[Optional[str], Field(default='', description='Optional window override, e.g. "Last 1 hour".')] = '',
             limit: Annotated[Optional[int], Field(default=None, description='Optional max rows/events to return.')] = None,
-    ) -> Annotated[Dict, Field(description='The search results (events, or grouped aggregates), identical to a direct search.')]:
+    ) -> Annotated[Dict, Field(description='The events (@raw, @time, @status, message_kvs), or grouped aggregates under totals/groups_series.')]:
         fetched = self.bronto_client.get_saved_searches(saved_search_id)
         saved = fetched.get('saved_search', fetched) if isinstance(fetched, dict) else fetched
         details = saved.get('search_details') if isinstance(saved, dict) else None
@@ -101,7 +101,7 @@ class SavedSearchTools:
 
     @staticmethod
     def _shape_search_response(resp) -> Dict:
-        """Trim a raw /search response to what search_logs/timeseries return.
+        """Trim a raw /search response.
 
         The raw payload repeats every event under `result` and `events` with per-event
         metadata and context links; keep each event's @raw/@time/@status/message_kvs.

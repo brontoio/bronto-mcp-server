@@ -380,7 +380,6 @@ class BrontoClient:
         """Create a monitor via POST /monitors and return the created object."""
         return self._request('POST', 'monitors', body=monitor_body)
 
-    # --- saved searches -----------------------------------------------------
     def get_saved_searches(self, saved_search_id=None) -> Dict:
         if saved_search_id:
             return self._request('GET', f'saved-searches/{urllib.parse.quote(str(saved_search_id), safe="")}')
@@ -389,7 +388,6 @@ class BrontoClient:
     def create_saved_search(self, body: Dict) -> Dict:
         return self._request('POST', 'saved-searches', body=body)
 
-    # --- monitors -----------------------------------------------------------
     def list_monitors(self) -> List[Dict]:
         body = self._request('GET', 'monitors')
         monitors = body.get('monitors', body) if isinstance(body, dict) else body
@@ -405,7 +403,6 @@ class BrontoClient:
         defs = body.get('definitions', body) if isinstance(body, dict) else body
         return defs if isinstance(defs, list) else []
 
-    # --- diagnostics / usage ------------------------------------------------
     def get_error_analytics(self, time_range: str = 'Last 24 hours') -> Dict:
         return self._request('GET', 'analytics/errors', params={'time_range': time_range})
 

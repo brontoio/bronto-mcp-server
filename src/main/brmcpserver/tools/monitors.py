@@ -45,7 +45,7 @@ class MonitorTools:
                 description='Validate and return the resolved monitor body without creating anything.')] = False,
     ) -> Annotated[Dict, Field(description='The created monitor, including its id. Created muted for review. '
                                            'With dry_run, {dry_run: true, monitor_body} and nothing is created.')]:
-        # Notifications need an existing user's email (no signed-in principal on the local server).
+        # Only an existing Bronto user's email can receive monitor notifications.
         emails = {str(u.get('email', '')).strip().lower()
                   for u in self.bronto_client.get_users() if u.get('email')}
         if notification_email.strip().lower() not in emails:

@@ -124,9 +124,10 @@ def register_tools(mcp, bronto_client: BrontoClient) -> None:
     mcp.tool(
         name='run_saved_search',
         title='Run Saved Search',
-        description="""Executes a saved search by id and returns the raw search API response for its stored
-                query (events, or grouped aggregates under totals/groups_series). Pass time_range to run over a
-                different window than it was saved with. Use get_saved_searches to find the id."""
+        description="""Executes a saved search by id. Returns its events (each with @raw, @time, @status and
+                message_kvs), or for an aggregate search the grouped results under totals/groups_series. Pass
+                time_range to run over a different window than it was saved with. Use get_saved_searches to find
+                the id."""
     )(saved_searches.run_saved_search)
 
     mcp.tool(
@@ -158,7 +159,7 @@ def register_tools(mcp, bronto_client: BrontoClient) -> None:
                 searched, and still ingesting — surfacing blind spots such as a live dataset that no
                 monitor is watching. Monitor coverage is resolved from the explicit dataset ids in monitors'
                 backing queries; monitors that select datasets with a from_expr are not resolved, so their
-                datasets may appear unmonitored. Use search_monitors to confirm before treating one as a blind spot."""
+                datasets may appear unmonitored even though a monitor covers them."""
     )(coverage.get_coverage)
 
     mcp.tool(
