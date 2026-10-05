@@ -104,4 +104,3 @@ def test_timeseries_single_group(search_tools, mock_bronto_client):
     assert group.timeseries[0] == Datapoint(
         timestamp=timestamp, count=50, quantiles={}, value=10.5
     )
-
