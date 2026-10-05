@@ -328,7 +328,8 @@ class BrontoClient:
     def _error_details(error: HTTPError) -> str:
         """Bronto's own explanation from an error response body, if it has one."""
         try:
-            details = json.loads(error.read()).get('details')
+            error_body = error.read()
+            details = json.loads(error_body).get('details')
         except Exception:
             return ''
         return f' {details}' if details else ''
