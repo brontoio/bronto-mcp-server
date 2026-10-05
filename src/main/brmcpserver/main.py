@@ -3,8 +3,8 @@ import sys
 
 from mcp.server.fastmcp import FastMCP
 from config import Config
-from clients import BrontoClient
-from tools import BrontoTools
+from bronto.client import BrontoClient
+from tools.registry import register_tools
 
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
@@ -41,8 +41,7 @@ if __name__ == "__main__":
     )
     config = Config()
     bronto_client = BrontoClient(config.bronto_api_key, config.bronto_api_endpoint)
-    bronto_tools = BrontoTools(bronto_client)
-    bronto_tools.register(mcp)
+    register_tools(mcp, bronto_client)
     logger.info('Bronto tools registered successfully')
 
     mcp.run(transport="streamable-http")
